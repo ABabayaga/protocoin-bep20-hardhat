@@ -1,4 +1,4 @@
-import { loadFixture, } from "@nomicfoundation/hardhat-toolbox/network-helpers";
+import { loadFixture, time } from "@nomicfoundation/hardhat-toolbox/network-helpers";
 import { expect } from "chai";
 import hre from "hardhat";
 
@@ -16,13 +16,13 @@ describe("ProtoCoin Tests", function () {
   it("Should have correct name", async function () {
     const { protoCoin, owner, otherAccount } = await loadFixture(deployFixture);
     const name = await protoCoin.name();
-    expect(name).to.equal("ProtoCoin");
+    expect(name).to.equal("New ProtoCoin");
   });
 
   it("Should have correct symbol", async function () {
     const { protoCoin, owner, otherAccount } = await loadFixture(deployFixture);
     const symbol = await protoCoin.symbol();
-    expect(symbol).to.equal("PRC");
+    expect(symbol).to.equal("NPC");
   });
 
   it("Should have correct decimals", async function () {
@@ -64,7 +64,7 @@ describe("ProtoCoin Tests", function () {
 
     const instance = protoCoin.connect(otherAccount);
     await expect(instance.transfer(owner.address, 1n))
-      .to.be.revertedWith("Insufficient balance");
+      .to.be.revertedWithCustomError(protoCoin, "ERC20InsufficientBalance");
   });
 
   it("Should approve", async function () {
@@ -98,13 +98,15 @@ describe("ProtoCoin Tests", function () {
     expect(allowance).to.equal(5);
   });
 
-  
+
   it("Should NOT transfer from (balance)", async function () {
     const { protoCoin, owner, otherAccount } = await loadFixture(deployFixture);
 
     const instance = protoCoin.connect(otherAccount);
-    await expect(instance.transferFrom(otherAccount.address, otherAccount.address, 1n))
-      .to.be.revertedWith("Insufficient balance");
+    await instance.approve(owner.address, 1n);
+
+    await expect(protoCoin.transferFrom(otherAccount.address, owner.address, 1n))
+      .to.be.revertedWithCustomError(protoCoin, "ERC20InsufficientBalance");
   });
 
   it("Should NOT transfer from (allowance)", async function () {
@@ -112,6 +114,91 @@ describe("ProtoCoin Tests", function () {
 
     const instance = protoCoin.connect(otherAccount);
     await expect(instance.transferFrom(owner.address, otherAccount.address, 1n))
-      .to.be.revertedWith("Insufficient allowance");
+      .to.be.revertedWithCustomError(protoCoin, "ERC20InsufficientAllowance");
   });
+
+  it("Should mint once", async () => {
+    const { protoCoin, owner, otherAccount } = await loadFixture(deployFixture);
+
+    const mintAmount = 1000n;
+    await protoCoin.setMintAmount(mintAmount);
+
+    const balanceBefore = await protoCoin.balanceOf(otherAccount.address);
+
+    await protoCoin.mint(otherAccount.address);
+
+    const balanceAfter = await protoCoin.balanceOf(otherAccount.address);
+
+    expect(balanceAfter).to.equal(balanceBefore + mintAmount);
+  })
+
+  it("Should mint twice (different accounts)", async () => {
+    const { protoCoin, owner, otherAccount } = await loadFixture(deployFixture);
+
+    const mintAmount = 1000n;
+    await protoCoin.setMintAmount(mintAmount);
+
+    const balanceBefore = await protoCoin.balanceOf(owner.address);
+    await protoCoin.mint(owner.address);
+
+    await protoCoin.mint(otherAccount.address);
+
+    const balanceAfter = await protoCoin.balanceOf(owner.address);
+
+    expect(balanceAfter).to.equal(balanceBefore + mintAmount);
+  })
+
+  it("Should mint twice (different moments)", async () => {
+    const { protoCoin, owner, otherAccount } = await loadFixture(deployFixture);
+
+    const mintAmount = 1000n;
+    await protoCoin.setMintAmount(mintAmount);
+
+    const balanceBefore = await protoCoin.balanceOf(otherAccount.address);
+    await protoCoin.mint(otherAccount.address);
+
+    const mintDelay = 60 * 60 * 24 * 2;//2 days in seconds
+    await time.increase(mintDelay);
+
+    await protoCoin.mint(otherAccount.address);
+
+    const balanceAfter = await protoCoin.balanceOf(otherAccount.address);
+    expect(balanceAfter).to.equal(balanceBefore + (mintAmount * 2n));
+  })
+
+  it("Should NOT set mint amount", async () => {
+    const { protoCoin, owner, otherAccount } = await loadFixture(deployFixture);
+    const mintAmount = 1000n;
+    const instance = protoCoin.connect(otherAccount);
+
+    await expect(instance.setMintAmount(mintAmount))
+      .to.be.revertedWith("You do not have permission.");
+  })
+
+  it("Should NOT set mint delay", async () => {
+    const { protoCoin, owner, otherAccount } = await loadFixture(deployFixture);
+    const mintDelay = 1000n;
+    const instance = protoCoin.connect(otherAccount);
+
+    await expect(instance.setMintDelay(mintDelay))
+      .to.be.revertedWith("You do not have permission.");
+  })
+
+  it("Should NOT mint", async () => {
+    const { protoCoin, owner, otherAccount } = await loadFixture(deployFixture);
+
+    await expect(protoCoin.mint(otherAccount.address))
+      .to.be.revertedWith("Minting is not enabled.");
+  })
+
+  it("Should NOT mint twice", async () => {
+    const { protoCoin, owner, otherAccount } = await loadFixture(deployFixture);
+
+    await protoCoin.setMintAmount(1000n);
+
+    await protoCoin.mint(otherAccount.address);
+
+    await expect(protoCoin.mint(otherAccount.address))
+      .to.be.revertedWith("You cannot mint twice in a row.");
+  })
 });
